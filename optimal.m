@@ -1,17 +1,44 @@
+clear; clc; close all; 
+
+%{ 
+“The Schleswig-Holstein question is so complicated, only three men in 
+Europe have ever understood it. One was Prince Albert, who is dead. The 
+second was a German professor who became mad. I am the third and I have 
+forgotten all about it.” 
+    - British Prime Minister Lord Palmerston
+%}
+
+
+%{
+TODO
+1. Add ferromagnetic alloy - need to iterate over rod sizes
+    a. Iron-cobalt
+    b. nickel-iron
+    c. permalloy (78% nickel, 22% iron)
+    d. permendur (50% cobalt, 50% iron)
+    e. CK30
+        Needs to have a linear relationship between dipole moment and
+        current and small dipole moment produced when torquers are off. 
+    
+%}
+
 
 min_l = 0.01; 
 max_l = 0.1; 
-min_d = 0.0005;
-max_d = 0.005;
+min_d = 7.874e-5; 
+max_d = 0.011684; 
 inc_l = 0.01; 
-inc_d = 0.0005; 
+inc_d = 0.0001; 
 
-params.m_core = 0.1; 
-params.r_core = 0.01; 
-params.rho_cu = 8960; 
-params.m_max = 0.3; 
-params.r_max = 0.05;   
-params.I = 0.25;       % current in amps
+params.res_cu = 1.68e-8;   % ohm·m @ 20°C
+params.rho_cu = 8960;      % kg/m^3
+params.r_core = 0.01;      % m
+params.m_core = 0.1;       % kg
+params.mu_r = 2000;        % something chat gave me
+params.m_max  = 0.5;       % kg (max coil + core)
+params.r_max  = 0.05;      % m (max outer radius)
+params.P_max  = 2;         % W
+params.V_bus  = 3;         % V
 
  
 
@@ -24,84 +51,104 @@ coil_template = struct( ...
     'n_wraps', 0, ...
     'r_outer', params.r_core, ...
     'm_total', params.m_core, ...
-    'M_dipole', 0 ...
-);
+    'res_total', 0, ...
+    'current', 0, ...
+    'M_dipole', 0, ...
+    'M_9', 0);
 
-coil = repmat(coil_template, length(l_values), length(d_values));
+
+coil = repmat(coil_template, length(l_values), length(d_values)); % grid of coil templates
 M = zeros(length(l_values), length(d_values));
+M_9 = zeros(length(l_values), length(d_values)); 
 
 for i = 1:length(l_values)
     l_core = l_values(i); 
     for j = 1:length(d_values)
         d_wire = d_values(j); 
-        
         % initialize coil 
-        coil(i,j).d_wire = d_wire; 
-        coil(i,j).l_core = l_core; 
-        coil(i,j).n_wraps = 0; 
-        coil(i,j).r_outer = params.r_core; 
-        coil(i,j).m_total = params.m_core; 
+        c = coil_template; 
+        c.l_core = l_core; 
+        c.d_wire = d_wire; 
         % wrap until breaks constraints
-        while canWrap(coil(i,j), params)
-            coil(i,j) = wrap(coil(i,j), params); 
+        while true
+            [c, wrapping] = wrapNext(c, params); 
+            if ~wrapping
+                break; 
+            end 
         end
-        % calculate magnetic dipole for dipole plot
-        n_turns = floor(l_core / d_wire);
-        N_total = n_turns * coil(i,j).n_wraps;
-        r_avg = (coil(i,j).r_outer + params.r_core) / 2;
-        A = pi * r_avg^2;
-        coil(i,j).M_dipole = N_total * params.I * A;
-        M(i,j) = coil(i,j).M_dipole;
+        % calculate magnetic dipole 
+        N_total = floor(l_core / d_wire) * c.n_wraps; 
+        r_mean = (params.r_core + c.r_outer) / 2; 
+        A_loop = pi*r_mean^2; 
+        c.M_dipole = N_total * c.current * A_loop; 
+
+        % equation 9
+        r_core = params.r_core; 
+        Nd = demag(l_core, r_core); 
+        gain = 1+(params.mu_r - 1)/(1 + (params.mu_r)*Nd); 
+        A_core = pi * r_core^2; 
+        c.M_9 = N_total*c.current*A_core*gain; 
+
+        % store results
+        coil(i,j) = c; 
+        M(i,j) = c.M_dipole; % magnetorquer dipole 
+        M_9(i,j) = c.M_9; 
     end 
 end 
 
-function can = canWrap(coil, params)
-    d_wire = coil.d_wire;
-    n_layers = coil.n_wraps + 1; 
-    n_turns = floor(coil.l_core / d_wire);
-    r_outer_new = params.r_core + n_layers * d_wire;
-    r_avg = (r_outer_new + params.r_core) / 2;
-    l_wire = 2 * pi * r_avg * n_turns * n_layers;
-    A_wire = pi * (d_wire^2)/4;
-    m_wire_total = params.rho_cu * l_wire * A_wire;
-
-    if (r_outer_new > params.r_max)
-        can = false;
-    elseif (m_wire_total + params.m_core > params.m_max)
-        can = false;
-    else
-        can = true;
-    end
-end
-
-function coil = wrap(coil, params)
-    coil.n_wraps = coil.n_wraps + 1;
-    d_wire = coil.d_wire;
-    n_turns = floor(coil.l_core / d_wire);
-    r_outer_new = params.r_core + coil.n_wraps * d_wire;
-    r_avg = (r_outer_new + params.r_core) / 2;
-    l_wire = 2 * pi * r_avg * n_turns * coil.n_wraps;
-    A_wire = pi * (d_wire^2)/4;
-    m_wire_total = params.rho_cu * l_wire * A_wire;
-    coil.r_outer = r_outer_new;
-    coil.m_total = m_wire_total + params.m_core;
-end 
+% plotting
 
 [DD, LL] = meshgrid(d_values, l_values);
-figure;
-surf(DD, LL, M);
+
+M_plot = M_9;
+M_plot(M_plot <= 0) = NaN; 
+figure; 
+surf(DD, LL, M_plot);
 xlabel('Wire Diameter [m]');
 ylabel('Core Length [m]');
 zlabel('Magnetic Dipole Moment [A·m^2]');
 title('Magnetorquer Design Space');
-shading interp;
-colorbar;
-grid on;
+shading interp; colorbar; grid on;
 
-       
+% helper functions
 
-       
+function [coil, wrapping] = wrapNext(coil, params)
+    d_wire = coil.d_wire;
+    n_turns = floor(coil.l_core / d_wire);
 
+    % geometry for new layer
+    r_inner = coil.r_outer; 
+    r_outer = r_inner + d_wire; 
+    r_mid = 0.5*(r_inner+r_outer); 
 
+    % properties of new layer
+    L_layer = 2*pi*r_mid*n_turns; 
+    A_wire = pi * (d_wire^2)/4;
+    R_layer = params.res_cu * L_layer / A_wire; 
+    m_layer = params.rho_cu * L_layer * A_wire; 
 
+    % new totals
+    R_new = coil.res_total + R_layer; 
+    m_new = coil.m_total + m_layer; 
+    P_new = (params.V_bus^2)/R_new; 
 
+    % check constraints
+    if (r_outer > params.r_max) || (m_new > params.m_max) || (P_new > params.P_max)
+        wrapping = false;
+        return
+    end
+
+    % wrap new layer
+    coil.n_wraps = coil.n_wraps + 1; 
+    coil.res_total = R_new; 
+    coil.m_total = m_new; 
+    coil.r_outer = r_outer; 
+    coil.current = params.V_bus / coil.res_total; 
+    wrapping = true; 
+end
+
+function Nd = demag(l_core, r_core)
+    x = max(l_core / max(r_core, eps), 1+1e-6);  % avoid l<=r singularity
+        Nd = 4*(log(x) - 1) / (x^2 - 4*log(x));
+        Nd = min(max(Nd, 0), 1);
+end
