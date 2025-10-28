@@ -19,11 +19,18 @@ forgotten all about it.”
 
 %{
 TODO
-    1. Add alloy functionl
+    1. Add alloys 
         - magnetic permeability will change with grade, temperature, and
         thickness
     2. add comments
-    3. core radius iteration
+    3. add volume constraint
+    4. add inputs
+    5. thermals 
+    6. power output 
+    7. fail rationale 
+    8. saturation cap 
+    9. computation of inductance 
+    10. wire specific currents? 
 %}
 
 % -------------------------------------------------------------------------
@@ -54,27 +61,30 @@ min_l = 0.01;
 max_l = 0.1; 
 inc_l = 0.01; 
 
-params.res_cu = 1.68e-8;   % ohm·m @ 20°C
+params.res_cu = 1.68e-8;   % ohm*m @ 20°C
 params.rho_cu = 8960;      % kg/m^3ch
-params.r_core = 0.01;      % m
-params.m_max  = 0.5;       % kg (max coil + core)
+params.m_max  = 1;         % kg (max coil + core)
 params.r_max  = 0.05;      % m (max outer radius)
-params.P_max  = 2;         % W
+params.I_max  = 0.25;         % W
 params.V_bus  = 3;         % V
+params.v_max = 1e-5;       % m^3
 
 l_values = min_l:inc_l:max_l; % range of lengths
+r_values = linspace(0.001, 0.01, 10); % range of radius 
 
 coil_template = struct( ...
     'd_wire', 0, ...
     'l_core', 0, ...
     'n_wraps', 0, ...
-    'r_outer', params.r_core, ...
+    'r_outer', 0, ...
     'res_per_m', 0, ...
     'm_total', 0, ...
+    'm_coil', 0, ...
     'res_total', 0, ...
     'current', 0, ...
     'M_dipole', 0, ...
     'M_9', 0, ...
+    'v', 0, ...
     'fail_code', 0 ...
 );
 
@@ -96,7 +106,9 @@ m = zeros(length(l_values), height(AWG_Table), numel(alloys));
 r = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
 d = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
 
-results = []; 
+results = table([], [], [], [], [], [], 'VariableNames', {'Alloy','m_total','M_9', 'M_dipole', 'r_core', 'l_core'});
+
+n = 1; 
 
 for k = 1:numel(alloys)
     name = alloys(k); 
@@ -105,89 +117,87 @@ for k = 1:numel(alloys)
     core.name = name; 
     core.mu_r = properties.mu_r; 
     core.rho = properties.rho; 
-    for i = 1:length(l_values)
-        l_core = l_values(i); 
-        core.mass = core.rho*pi*params.r_core^2*l_core; 
+    for l = 1:length(r_values)
+        r_core = r_values(l); 
 
-        for j = 1:height(AWG_Table)
-            d_wire = (AWG_Table.d_mm(j))/1000; 
-            res_per_m = (AWG_Table.r_km(j))/1000; 
-            % initialize coil 
-            c = coil_template; 
-            c.l_core = l_core; 
-            c.d_wire = d_wire; 
-            c.res_per_m = res_per_m; 
-            % wrap until breaks constraints
-            while true
-                [c, wrapping] = wrapNext(core, c, params); 
-                if ~wrapping
-                    break; 
+        for i = 1:length(l_values)
+            l_core = l_values(i); 
+            core.mass = core.rho*pi*r_core^2*l_core; 
+    
+            for j = 1:height(AWG_Table)
+                d_wire = (AWG_Table.d_mm(j))/1000; 
+                res_per_m = (AWG_Table.r_km(j))/1000; 
+                % initialize coil 
+                c = coil_template; 
+                c.l_core = l_core; 
+                c.d_wire = d_wire; 
+                c.res_per_m = res_per_m; 
+                c.r_outer = r_core; 
+                % wrap until breaks constraints
+                while true
+                    [c, wrapping] = wrapNext(core, c, params); 
+                    if ~wrapping
+                        break; 
+                    end 
+                end
+                % calculate magnetic dipole 
+                N_total = floor(l_core / d_wire) * c.n_wraps; 
+                r_mean = (r_core + c.r_outer) / 2; 
+                A_loop = pi*r_mean^2; 
+                c.M_dipole = N_total * c.current * A_loop; 
+        
+                % equation 9
+                Nd = demag(l_core, r_core); 
+                gain = 1+(core.mu_r - 1)/(1 + (core.mu_r)*Nd); 
+                A_core = pi * r_core^2; 
+                c.M_9 = N_total*c.current*A_core*gain; 
+        
+                % store results
+                if c.M_9 > 0
+                    row = table(string(name), c.m_total, c.M_9, c.M_dipole, r_core, l_core, ...
+                        'VariableNames', {'Alloy', 'm_total', 'M_9', 'M_dipole', 'r_core', 'l_core'});
+                    results = [results; row];
                 end 
-            end
-            % calculate magnetic dipole 
-            N_total = floor(l_core / d_wire) * c.n_wraps; 
-            r_mean = (params.r_core + c.r_outer) / 2; 
-            A_loop = pi*r_mean^2; 
-            c.M_dipole = N_total * c.current * A_loop; 
-    
-            % equation 9
-            r_core = params.r_core; 
-            Nd = demag(l_core, r_core); 
-            gain = 1+(core.mu_r - 1)/(1 + (core.mu_r)*Nd); 
-            A_core = pi * r_core^2; 
-            c.M_9 = N_total*c.current*A_core*gain; 
-    
-            % store results
-            row.Alloy = alloys(k); 
-            row.l_core = l_core; 
-            row.d_wire = d_wire; 
-            row.M_dipole = c.M_dipole; 
-            row.M_9 = c.M_9; 
-            row.P = c.current * params.V_bus; 
-            row.m_total = c.m_total; 
-            row.r_outer = c.r_outer; 
-
-            results = [results; struct2table(row)]; 
-
-            % coil(i,j) = c; 
-            % M(i,j) = c.M_dipole; % magnetorquer dipole 
-            % M_9(i,j) = c.M_9;
-            % P(i,j) = c.current*params.V_bus; 
-            % m(i,j) = c.m_total; 
-            % r(i,j) = c.r_outer; 
-            % d(i,j) = d_wire; 
+            end 
         end 
     end 
 end 
 
-% plotting
-
-M_plot = M_9;
-M_plot(M_plot <= 0) = NaN; 
-M_air = M; 
-M_air(M_air <= 0) = NaN; 
-
-% figure;
-% scatter(results.d_wire, results.M_9, 25, 'filled');
-% xlabel('Wire Diameter [m]');
-% ylabel('Magnetic Dipole [A·m²]');
-% grid on;
+% alloyNames = unique(results.Alloy); 
+% colors = lines(numel(alloyNames)); 
 % 
-% figure; hold on;
-% alloyNames = unique(results.Alloy);
+% figure; hold on; grid on;
 % for a = 1:numel(alloyNames)
 %     mask = results.Alloy == alloyNames(a);
-%     scatter(results.d_wire(mask), results.M_9(mask), 25, 'filled', ...
-%             'DisplayName', alloyNames(a));
+%     scatter(results.m_total(mask), results.M_9(mask), ...
+%         40, colors(a,:), 'filled', 'DisplayName', alloyNames(a));
 % end
-% xlabel('Wire Diameter [m]');
-% ylabel('Magnetic Dipole [A·m²]');
-% legend show; grid on;
-% 
-% figure; 
-% scatter(results.m_total, results.P, 25, 'filled');
 % xlabel('Mass [kg]');
-% ylabel('Power [W]');
+% ylabel('Magnetic Dipole [A·m^2]');
+% legend show;
+% title('Magnetic Dipole vs Mass by Alloy');
+
+
+alloyNames = unique(results.Alloy);
+colors = lines(numel(alloyNames));
+
+figure; hold on; grid on; box on;
+for a = 1:numel(alloyNames)
+    mask = results.Alloy == alloyNames(a);
+    scatter3( results.r_core(mask)*1e3, ...   % convert to mm
+              results.l_core(mask)*1e3, ...
+              results.M_9(mask), ...
+              40, colors(a,:), 'filled', ...
+              'DisplayName', alloyNames(a) );
+end
+xlabel('Core Radius [mm]');
+ylabel('Core Length [mm]');
+zlabel('Magnetic Dipole Moment, M_9 [A·m^2]');
+title('Magnetorquer Design Space: Core Geometry vs Dipole Moment');
+legend('Location','best');
+view(45,30);
+
+
 
 
 function [coil, wrapping] = wrapNext(core, coil, params)
@@ -207,28 +217,32 @@ function [coil, wrapping] = wrapNext(core, coil, params)
 
     % new totals
     R_new = coil.res_total + R_layer; 
-    m_new = core.mass + m_layer; 
-    P_new = (params.V_bus^2)/R_new; 
+    m_coil_new = coil.m_coil + m_layer;  
+    m_total_new = core.mass + m_coil_new; 
+    I_new = params.V_bus/R_new; 
+    v_new = pi*(r_outer^2)*coil.l_core; 
 
     % check constraints
-    if r_outer > params.r_max 
-        coil.fail_code = 1; % radius fail
+    if v_new > params.v_max
+        coil.fail_code = 1; % volume fail
         wrapping = false; 
         return
-    elseif m_new > params.m_max
+    elseif m_total_new > params.m_max
         coil.fail_code = 2; % mass fail 
         wrapping = false; 
         return 
-    elseif P_new > params.P_max
+    elseif I_new > params.I_max
         coil.fail_code = 3; % power fail 
         wrapping = false; 
         return; 
     end 
 
     % wrap new layer
+    coil.v = v_new; 
     coil.n_wraps = coil.n_wraps + 1; 
     coil.res_total = R_new; 
-    coil.m_total = m_new; 
+    coil.m_total = m_total_new; 
+    coil.m_coil = m_coil_new; 
     coil.r_outer = r_outer; 
     coil.current = params.V_bus / coil.res_total; 
     wrapping = true; 
@@ -242,14 +256,14 @@ what it retuns
 function Nd = demag(l_core, r_core)
     x = l_core/r_core; 
     Nd = 4*(log(x) - 1) / (x^2 - 4*log(x));
-    Nd = min(max(Nd, 0), 1);
+    % Nd = max(min(Nd, 0.9999), 1e-4); - not sure if this is necessary? 
 end
 
 function props = getProperties(name)
 %GETPROPERTIES Returns properties of alloys
     switch(name)
         case 'Vacoflux 50'
-            props.mu_r = 7000; 
+            props.mu_r = 5000; 
             props.rho = 8120; % kg/m^3
         case 'something'
             props.mu_r = 1; 
