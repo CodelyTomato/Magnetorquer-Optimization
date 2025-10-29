@@ -106,7 +106,10 @@ m = zeros(length(l_values), height(AWG_Table), numel(alloys));
 r = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
 d = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
 
-results = table([], [], [], [], [], [], 'VariableNames', {'Alloy','m_total','M_9', 'M_dipole', 'r_core', 'l_core'});
+sz = [1 2]; 
+varTypes = ["double", "string"]; 
+varNames = ["Magnetic Moment", "Alloy"];
+results = table('Size',sz,'VariableTypes',varTypes,'VariableNames',varNames); 
 
 n = 1; 
 
@@ -152,52 +155,18 @@ for k = 1:numel(alloys)
                 A_core = pi * r_core^2; 
                 c.M_9 = N_total*c.current*A_core*gain; 
         
-                % store results
+                % store results - buidlign this way doesn't work because
+                % when index changes we are resetting this table or dso
                 if c.M_9 > 0
-                    row = table(string(name), c.m_total, c.M_9, c.M_dipole, r_core, l_core, ...
-                        'VariableNames', {'Alloy', 'm_total', 'M_9', 'M_dipole', 'r_core', 'l_core'});
-                    results = [results; row];
+                    results(n,:) = {c.M_9, core.name}; 
+                    n = n+1; 
                 end 
             end 
         end 
     end 
 end 
 
-% alloyNames = unique(results.Alloy); 
-% colors = lines(numel(alloyNames)); 
-% 
-% figure; hold on; grid on;
-% for a = 1:numel(alloyNames)
-%     mask = results.Alloy == alloyNames(a);
-%     scatter(results.m_total(mask), results.M_9(mask), ...
-%         40, colors(a,:), 'filled', 'DisplayName', alloyNames(a));
-% end
-% xlabel('Mass [kg]');
-% ylabel('Magnetic Dipole [A·m^2]');
-% legend show;
-% title('Magnetic Dipole vs Mass by Alloy');
-
-
-alloyNames = unique(results.Alloy);
-colors = lines(numel(alloyNames));
-
-figure; hold on; grid on; box on;
-for a = 1:numel(alloyNames)
-    mask = results.Alloy == alloyNames(a);
-    scatter3( results.r_core(mask)*1e3, ...   % convert to mm
-              results.l_core(mask)*1e3, ...
-              results.M_9(mask), ...
-              40, colors(a,:), 'filled', ...
-              'DisplayName', alloyNames(a) );
-end
-xlabel('Core Radius [mm]');
-ylabel('Core Length [mm]');
-zlabel('Magnetic Dipole Moment, M_9 [A·m^2]');
-title('Magnetorquer Design Space: Core Geometry vs Dipole Moment');
-legend('Location','best');
-view(45,30);
-
-
+disp(results); 
 
 
 function [coil, wrapping] = wrapNext(core, coil, params)
@@ -248,11 +217,6 @@ function [coil, wrapping] = wrapNext(core, coil, params)
     wrapping = true; 
 end
 
-%{
-fucntion does thing
-what parameters are
-what it retuns
-%}
 function Nd = demag(l_core, r_core)
     x = l_core/r_core; 
     Nd = 4*(log(x) - 1) / (x^2 - 4*log(x));
@@ -260,7 +224,6 @@ function Nd = demag(l_core, r_core)
 end
 
 function props = getProperties(name)
-%GETPROPERTIES Returns properties of alloys
     switch(name)
         case 'Vacoflux 50'
             props.mu_r = 5000; 
