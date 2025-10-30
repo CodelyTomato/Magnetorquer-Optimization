@@ -58,19 +58,57 @@ AWG_Table = table(AWG, d_mm', r_km', ...
     'VariableNames', {'AWG','d_mm','r_km'});
 
 min_l = 0.01; 
-max_l = 0.1; 
-inc_l = 0.01; 
+inc_l = 0.01;
+
+disp('Please specify a set of constraints.'); 
+disp('If no constraint needed, enter 0'); 
+prompt = "What is the core radius? [m] ";
+txt = input(prompt); 
+if txt == 0
+    r_core = 0.001; 
+else
+    r_core = txt; 
+end 
+prompt = "What is the maximum length? [m] "; 
+txt = input(prompt); 
+if txt == 0
+    max_l = 0.1; 
+else
+    max_l = txt; 
+end 
+prompt = "What is the maximum volume? [m^3] "; 
+txt = input(prompt); 
+if txt == 0
+    params.v_max = 1e-5; 
+else
+    params.v_max = txt; 
+end 
+prompt = "What is the maximum mass? [kg] ";
+txt = input(prompt); 
+if txt == 0
+    params.m_max = 1; 
+else
+    params.m_max = txt; 
+end 
+prompt = "What is the supplied bus voltage? [V] "; 
+txt = input(prompt); 
+if txt == 0
+    params.V_bus = 3; 
+else
+    params.V_bus = txt; 
+end 
+prompt = "What is the maximum current? [A] "; 
+txt = input(prompt); 
+if txt == 0
+    params.I_max = 0.25; % A
+else
+    params.P_max = txt; 
+end 
 
 params.res_cu = 1.68e-8;   % ohm*m @ 20°C
-params.rho_cu = 8960;      % kg/m^3ch
-params.m_max  = 1;         % kg (max coil + core)
-params.r_max  = 0.05;      % m (max outer radius)
-params.I_max  = 0.25;         % W
-params.V_bus  = 3;         % V
-params.v_max = 1e-5;       % m^3
+params.rho_cu = 8960;      % kg/m^3
 
 l_values = min_l:inc_l:max_l; % range of lengths
-r_values = linspace(0.001, 0.01, 10); % range of radius 
 
 coil_template = struct( ...
     'd_wire', 0, ...
@@ -85,7 +123,9 @@ coil_template = struct( ...
     'M_dipole', 0, ...
     'M_9', 0, ...
     'v', 0, ...
-    'fail_code', 0 ...
+    'fail_code', 0, ...
+    'power', 0, ...
+    'awg', 0 ...
 );
 
 core_template = struct( ...
@@ -99,19 +139,20 @@ alloys = ["Vacoflux 50", "something"];
 
 coil = repmat(coil_template, length(l_values), height(AWG_Table)); % grid of coil templates
 
-M = zeros(length(l_values), height(AWG_Table), numel(alloys));
-M_9 = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
-P = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
-m = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
-r = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
-d = zeros(length(l_values), height(AWG_Table), numel(alloys)); 
-
-sz = [1 2]; 
-varTypes = ["double", "string"]; 
-varNames = ["Magnetic Moment", "Alloy"];
+sz = [1 12]; 
+varTypes = ["double", "double", "string", "double", "double", "double", ...
+    "double", "double", "double", "double", "double", "double"]; 
+varNames = ["Magnetic Moment [A*m^2]", "Air Cored Magnetic Moment [A*m^2]", ...
+    "Alloy", "Wire Gauge", "Core Length [m]", "Core Radius [m]", ...
+    "Outer Radius [m]", "Volume [m^3]", "Number of Wraps", "Current [A]", ...
+    "Power [W]", "Total Mass [kg]"];
 results = table('Size',sz,'VariableTypes',varTypes,'VariableNames',varNames); 
 
 n = 1; 
+good = 0; 
+vol_fail = 0; 
+mass_fail = 0; 
+curr_fail = 0; 
 
 for k = 1:numel(alloys)
     name = alloys(k); 
@@ -120,53 +161,77 @@ for k = 1:numel(alloys)
     core.name = name; 
     core.mu_r = properties.mu_r; 
     core.rho = properties.rho; 
-    for l = 1:length(r_values)
-        r_core = r_values(l); 
-
-        for i = 1:length(l_values)
-            l_core = l_values(i); 
-            core.mass = core.rho*pi*r_core^2*l_core; 
-    
-            for j = 1:height(AWG_Table)
-                d_wire = (AWG_Table.d_mm(j))/1000; 
-                res_per_m = (AWG_Table.r_km(j))/1000; 
-                % initialize coil 
-                c = coil_template; 
-                c.l_core = l_core; 
-                c.d_wire = d_wire; 
-                c.res_per_m = res_per_m; 
-                c.r_outer = r_core; 
-                % wrap until breaks constraints
-                while true
-                    [c, wrapping] = wrapNext(core, c, params); 
-                    if ~wrapping
-                        break; 
-                    end 
-                end
-                % calculate magnetic dipole 
-                N_total = floor(l_core / d_wire) * c.n_wraps; 
-                r_mean = (r_core + c.r_outer) / 2; 
-                A_loop = pi*r_mean^2; 
-                c.M_dipole = N_total * c.current * A_loop; 
-        
-                % equation 9
-                Nd = demag(l_core, r_core); 
-                gain = 1+(core.mu_r - 1)/(1 + (core.mu_r)*Nd); 
-                A_core = pi * r_core^2; 
-                c.M_9 = N_total*c.current*A_core*gain; 
-        
-                % store results - buidlign this way doesn't work because
-                % when index changes we are resetting this table or dso
-                if c.M_9 > 0
-                    results(n,:) = {c.M_9, core.name}; 
-                    n = n+1; 
+    for i = 1:length(l_values)
+        l_core = l_values(i); 
+        core.mass = core.rho*pi*r_core^2*l_core;
+        for j = 1:height(AWG_Table)
+            d_wire = (AWG_Table.d_mm(j))/1000; 
+            res_per_m = (AWG_Table.r_km(j))/1000; 
+            % initialize coil 
+            c = coil_template; 
+            c.l_core = l_core; 
+            c.d_wire = d_wire; 
+            c.res_per_m = res_per_m; 
+            c.r_outer = r_core; 
+            c.awg = AWG_Table.AWG(j); 
+            % wrap until breaks constraints
+            while true
+                [c, wrapping] = wrapNext(core, c, params); 
+                if ~wrapping
+                    break; 
                 end 
+            end
+            % calculate magnetic dipole 
+            N_total = floor(l_core / d_wire) * c.n_wraps; 
+            r_mean = (r_core + c.r_outer) / 2; 
+            A_loop = pi*r_mean^2; 
+            c.M_dipole = N_total * c.current * A_loop; 
+    
+            % equation 9
+            Nd = demag(l_core, r_core); 
+            gain = 1+(core.mu_r - 1)/(1 + (core.mu_r)*Nd); 
+            A_core = pi * r_core^2; 
+            c.M_9 = N_total*c.current*A_core*gain; 
+            c.power = params.V_bus * c.current; 
+            if c.M_9 > 0
+                results(n,:) = {c.M_9, c.M_dipole, core.name, c.awg, l_core, r_core, c.r_outer, c.v, c.n_wraps, c.current, c.power, c.m_total}; 
+                n = n+1; 
+                good = good + 1; 
+            end
+            if c.fail_code == 1
+                vol_fail = vol_fail + 1; 
+            elseif c.fail_code ==2
+                mass_fail = mass_fail + 1; 
+            elseif c.fail_code == 3
+                curr_fail = curr_fail + 1; 
             end 
         end 
     end 
 end 
+max_dipole = 0; 
+for irow = 1:height(results)
+    currentRow = results(irow, :); 
+    current_dipole = currentRow.("Magnetic Moment [A*m^2]"); 
+    if current_dipole > max_dipole
+        max_dipole = current_dipole; 
+        max_row = currentRow; 
+    end 
+end 
+figure; 
+scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]")
+figure; 
+scatter(results, "Power [W]", "Magnetic Moment [A*m^2]")
 
-disp(results); 
+if max_dipole == 0
+    disp('No design possible')
+else
+    disp('Best design calculated!')
+    disp(max_row); 
+end 
+figure; 
+x = ["Usable Designs" "Volume Fail" "Mass Fail" "Current Fail"]; 
+goobers = [good vol_fail mass_fail curr_fail]; 
+bar(x, goobers); 
 
 
 function [coil, wrapping] = wrapNext(core, coil, params)
@@ -186,9 +251,10 @@ function [coil, wrapping] = wrapNext(core, coil, params)
 
     % new totals
     R_new = coil.res_total + R_layer; 
+    I_new = params.V_bus / R_new;
     m_coil_new = coil.m_coil + m_layer;  
     m_total_new = core.mass + m_coil_new; 
-    I_new = params.V_bus/R_new; 
+    % P_new = params.V_bus * I_new; 
     v_new = pi*(r_outer^2)*coil.l_core; 
 
     % check constraints
@@ -220,7 +286,6 @@ end
 function Nd = demag(l_core, r_core)
     x = l_core/r_core; 
     Nd = 4*(log(x) - 1) / (x^2 - 4*log(x));
-    % Nd = max(min(Nd, 0.9999), 1e-4); - not sure if this is necessary? 
 end
 
 function props = getProperties(name)
