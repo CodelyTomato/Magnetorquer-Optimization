@@ -19,18 +19,21 @@ forgotten all about it.”
 
 %{
 TODO
-    1. Add alloys 
-        - magnetic permeability will change with grade, temperature, and
-        thickness
-    2. add comments
-    3. add volume constraint
-    4. add inputs
-    5. thermals 
-    6. power output 
-    7. fail rationale 
-    8. saturation cap 
-    9. computation of inductance 
-    10. wire specific currents? 
+    11. minimium machinable parameters (i.e. smallest possible radius -
+    could make material specific?) 
+    12. add heat to power failure criteria 
+    13. add in choices for materials
+    14. change outputs to optimize design rather than select largest
+    magnetic moment. (i.e. make it work better okay). 
+
+    Take 10 most efficient points from each graph and see what they look
+    like? 
+
+    range of masses of usuable design points
+    range of magnetic moments of usuable design points 
+    take avg of highest 5 moments
+    take avg of lowest 5 moments
+    remove some 
 %}
 
 % -------------------------------------------------------------------------
@@ -62,14 +65,14 @@ inc_l = 0.01;
 
 disp('Please specify a set of constraints.'); 
 disp('If no constraint needed, enter 0'); 
-prompt = "What is the core radius? [m] ";
+prompt = "What is the maximum core radius? [m] ";
 txt = input(prompt); 
 if txt == 0
-    r_core = 0.001; 
+    r_core = 0.01; 
 else
     r_core = txt; 
 end 
-prompt = "What is the maximum length? [m] "; 
+prompt = "What is the desired length? [m] "; 
 txt = input(prompt); 
 if txt == 0
     max_l = 0.1; 
@@ -79,7 +82,7 @@ end
 prompt = "What is the maximum volume? [m^3] "; 
 txt = input(prompt); 
 if txt == 0
-    params.v_max = 1e-5; 
+    params.v_max = pi*(r_core*3)^2*max_l; 
 else
     params.v_max = txt; 
 end 
@@ -102,7 +105,7 @@ txt = input(prompt);
 if txt == 0
     params.I_max = 0.25; % A
 else
-    params.P_max = txt; 
+    params.I_max = txt; 
 end 
 
 params.res_cu = 1.68e-8;   % ohm*m @ 20°C
@@ -154,6 +157,10 @@ vol_fail = 0;
 mass_fail = 0; 
 curr_fail = 0; 
 
+
+%{
+Loops through constraints and saves results to a table. 
+%}
 for k = 1:numel(alloys)
     name = alloys(k); 
     properties = getProperties(name); 
@@ -161,7 +168,7 @@ for k = 1:numel(alloys)
     core.name = name; 
     core.mu_r = properties.mu_r; 
     core.rho = properties.rho; 
-    for i = 1:length(l_values)
+    for i = 1:length(l_values) % switch to being maximum length and iterate over the radius ( 8 cm ) 
         l_core = l_values(i); 
         core.mass = core.rho*pi*r_core^2*l_core;
         for j = 1:height(AWG_Table)
@@ -208,32 +215,58 @@ for k = 1:numel(alloys)
         end 
     end 
 end 
-max_dipole = 0; 
-for irow = 1:height(results)
-    currentRow = results(irow, :); 
-    current_dipole = currentRow.("Magnetic Moment [A*m^2]"); 
-    if current_dipole > max_dipole
-        max_dipole = current_dipole; 
-        max_row = currentRow; 
-    end 
-end 
-figure; 
-scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]")
-figure; 
-scatter(results, "Power [W]", "Magnetic Moment [A*m^2]")
+% max_dipole = 0; 
+% for irow = 1:height(results)
+%     currentRow = results(irow, :); 
+%     current_dipole = currentRow.("Magnetic Moment [A*m^2]"); 
+%     if current_dipole > max_dipole
+%         max_dipole = current_dipole; 
+%         max_row = currentRow; 
+%     end 
+% end 
+% 
+% S = std(results.("Magnetic Moment [A*m^2]")); 
+% figure; 
+% hold on; 
+% for i = 1:height(results)
+%     if results(i,:).("Magnetic Moment [A*m^2]") > S
+%         scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]")
+%     else
+%         disp(results(i,:).("Magnetic Moment [A*m^2]")); 
+%     end 
+% end 
+% hold off; 
+% figure; 
+% scatter(results, "Power [W]", "Magnetic Moment [A*m^2]")
 
-if max_dipole == 0
-    disp('No design possible')
-else
-    disp('Best design calculated!')
-    disp(max_row); 
-end 
+% mass_eff = zeros(height(results)); 
+% for i = 1:height(results)
+%     mass_eff(i,:) = results(i,:).("Magnetic Moment [A*m^2]")/results(i,:).("Total Mass [kg]"); 
+% end 
+
+
+
+
+
+
+% if max_dipole == 0
+%     disp('No design possible')
+% else
+%     disp('Best design calculated!')
+%     disp(max_row); 
+% end 
 figure; 
 x = ["Usable Designs" "Volume Fail" "Mass Fail" "Current Fail"]; 
 goobers = [good vol_fail mass_fail curr_fail]; 
 bar(x, goobers); 
 
+% writetable(results, 'results.csv'); 
 
+
+
+%{
+Checks if another layer of wire can be added and if so, wraps it. 
+%}
 function [coil, wrapping] = wrapNext(core, coil, params)
     d_wire = coil.d_wire;
     n_turns = floor(coil.l_core / d_wire);
@@ -282,20 +315,21 @@ function [coil, wrapping] = wrapNext(core, coil, params)
     coil.current = params.V_bus / coil.res_total; 
     wrapping = true; 
 end
-
+% Demagnetizing calculation
 function Nd = demag(l_core, r_core)
     x = l_core/r_core; 
     Nd = 4*(log(x) - 1) / (x^2 - 4*log(x));
 end
 
+% Properties of different alloy core choices. 
 function props = getProperties(name)
     switch(name)
         case 'Vacoflux 50'
             props.mu_r = 5000; 
             props.rho = 8120; % kg/m^3
         case 'something'
-            props.mu_r = 1; 
-            props.rho = 1; 
+            props.mu_r = 0; 
+            props.rho = 0;
         otherwise 
             error('Unknown alloy: %s', name)
     end 
