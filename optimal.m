@@ -2,7 +2,7 @@ clear; clc; close all;
 %{
 Magnetorquer Sizing Optimization Program
 Written by Aidan Moriarty
-Assisted by Elias Dahl and John Babineau 
+Assisted by Elias Dahl (roommate) and John Babineau (MOPS lead)
 %}
 
 % -------------------------------------------------------------------------
@@ -19,26 +19,18 @@ forgotten all about it.”
 
 %{
 TODO
-    11. minimium machinable parameters (i.e. smallest possible radius -
-    could make material specific?) 
+    11. Machinable parameters
     12. add heat to power failure criteria 
-    13. add in choices for materials
+    13. add in more choices for materials
     14. change outputs to optimize design rather than select largest
-    magnetic moment. (i.e. make it work better okay). 
-
-    Take 10 most efficient points from each graph and see what they look
-    like? 
-
-    range of masses of usuable design points
-    range of magnetic moments of usuable design points 
-    take avg of highest 5 moments
-    take avg of lowest 5 moments
-    remove some 
+    magnetic moment. 
 %}
 
 % -------------------------------------------------------------------------
 
-AWG = (-3:47)';  % numeric mapping
+% Information taken from table of AWG standard data. 
+
+AWG = (-3:47)';  
 d_mm = [ ...
 11.6840, 10.40384, 9.26592, 8.25246, 7.34822, 6.54304, 5.82676, 5.18922, ...
 4.62126, 4.11582, 3.66522, 3.26390, 2.90576, 2.58826, 2.30378, 2.05232, ...
@@ -60,29 +52,29 @@ r_km = [ ...
 AWG_Table = table(AWG, d_mm', r_km', ...
     'VariableNames', {'AWG','d_mm','r_km'});
 
-min_l = 0.01; 
-inc_l = 0.01;
+%--------------------------------------------------------------------------
 
+% Get user inputs
 disp('Please specify a set of constraints.'); 
-disp('If no constraint needed, enter 0'); 
+disp('For default constraint, enter 0'); 
 prompt = "What is the maximum core radius? [m] ";
 txt = input(prompt); 
 if txt == 0
-    r_core = 0.01; 
+    max_r = 0.01; 
 else
-    r_core = txt; 
+    max_r = txt; 
 end 
-prompt = "What is the desired length? [m] "; 
+prompt = "What is the length? [m] "; 
 txt = input(prompt); 
 if txt == 0
-    max_l = 0.1; 
+    l_core = 0.2; 
 else
-    max_l = txt; 
+    l_core = txt; 
 end 
 prompt = "What is the maximum volume? [m^3] "; 
 txt = input(prompt); 
 if txt == 0
-    params.v_max = pi*(r_core*3)^2*max_l; 
+    params.v_max = pi*(max_r*2)^2*l_core; 
 else
     params.v_max = txt; 
 end 
@@ -108,10 +100,15 @@ else
     params.I_max = txt; 
 end 
 
+%--------------------------------------------------------------------------
+% Parameters
+
 params.res_cu = 1.68e-8;   % ohm*m @ 20°C
 params.rho_cu = 8960;      % kg/m^3
 
-l_values = min_l:inc_l:max_l; % range of lengths
+min_r = 0.005; 
+inc_r = 0.0005; 
+r_values = min_r:inc_r:max_r; % range of radii
 
 coil_template = struct( ...
     'd_wire', 0, ...
@@ -140,7 +137,7 @@ core_template = struct( ...
 
 alloys = ["Vacoflux 50", "something"]; 
 
-coil = repmat(coil_template, length(l_values), height(AWG_Table)); % grid of coil templates
+coil = repmat(coil_template, length(r_values), height(AWG_Table)); % grid of coil templates
 
 sz = [1 12]; 
 varTypes = ["double", "double", "string", "double", "double", "double", ...
@@ -159,7 +156,7 @@ curr_fail = 0;
 
 
 %{
-Loops through constraints and saves results to a table. 
+Loops through constraints and saves results to results. 
 %}
 for k = 1:numel(alloys)
     name = alloys(k); 
@@ -168,8 +165,8 @@ for k = 1:numel(alloys)
     core.name = name; 
     core.mu_r = properties.mu_r; 
     core.rho = properties.rho; 
-    for i = 1:length(l_values) % switch to being maximum length and iterate over the radius ( 8 cm ) 
-        l_core = l_values(i); 
+    for i = 1:length(r_values) % switch to being maximum length and iterate over the radius ( 8 cm ) 
+        r_core = r_values(i); 
         core.mass = core.rho*pi*r_core^2*l_core;
         for j = 1:height(AWG_Table)
             d_wire = (AWG_Table.d_mm(j))/1000; 
@@ -215,54 +212,22 @@ for k = 1:numel(alloys)
         end 
     end 
 end 
-% max_dipole = 0; 
-% for irow = 1:height(results)
-%     currentRow = results(irow, :); 
-%     current_dipole = currentRow.("Magnetic Moment [A*m^2]"); 
-%     if current_dipole > max_dipole
-%         max_dipole = current_dipole; 
-%         max_row = currentRow; 
-%     end 
-% end 
-% 
-% S = std(results.("Magnetic Moment [A*m^2]")); 
-% figure; 
-% hold on; 
-% for i = 1:height(results)
-%     if results(i,:).("Magnetic Moment [A*m^2]") > S
-%         scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]")
-%     else
-%         disp(results(i,:).("Magnetic Moment [A*m^2]")); 
-%     end 
-% end 
-% hold off; 
-% figure; 
-% scatter(results, "Power [W]", "Magnetic Moment [A*m^2]")
 
-% mass_eff = zeros(height(results)); 
-% for i = 1:height(results)
-%     mass_eff(i,:) = results(i,:).("Magnetic Moment [A*m^2]")/results(i,:).("Total Mass [kg]"); 
-% end 
+% basic plots to be optimized in future release
 
+figure; 
+scatter(results, "Power [W]", "Magnetic Moment [A*m^2]")
 
+figure; 
+scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]") 
 
+figure; 
+scatter(results,"Volume [m^3]", "Magnetic Moment [A*m^2]")
 
-
-
-% if max_dipole == 0
-%     disp('No design possible')
-% else
-%     disp('Best design calculated!')
-%     disp(max_row); 
-% end 
 figure; 
 x = ["Usable Designs" "Volume Fail" "Mass Fail" "Current Fail"]; 
 goobers = [good vol_fail mass_fail curr_fail]; 
 bar(x, goobers); 
-
-% writetable(results, 'results.csv'); 
-
-
 
 %{
 Checks if another layer of wire can be added and if so, wraps it. 
@@ -315,6 +280,7 @@ function [coil, wrapping] = wrapNext(core, coil, params)
     coil.current = params.V_bus / coil.res_total; 
     wrapping = true; 
 end
+
 % Demagnetizing calculation
 function Nd = demag(l_core, r_core)
     x = l_core/r_core; 
@@ -327,7 +293,7 @@ function props = getProperties(name)
         case 'Vacoflux 50'
             props.mu_r = 5000; 
             props.rho = 8120; % kg/m^3
-        case 'something'
+        case 'something' % TODO
             props.mu_r = 0; 
             props.rho = 0;
         otherwise 
