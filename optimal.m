@@ -32,9 +32,10 @@ TODO
 % Get AWG information 
 T = readtable('awg.csv'); 
 AWG = T{:,'AWG'}; 
-d_mm = T{:,'Diameter'}; 
-r_km = T{:, 'Resistance'}; 
-max_wire_current = T{:, 'Amps'}; 
+d_conductor_mm = T{:,'BareDiameter_mm_'}; 
+r_km = T{:, 'Resistance_KM'}; 
+max_wire_current = T{:, 'MaxCurrent_A_'}; 
+d_jacket_mm = T{:, 'SingleBuildDiameter_mm_'}; 
 
 % Get user inputs
 disp('Please specify a set of constraints.'); 
@@ -67,7 +68,7 @@ end
 prompt = "What is the maximum mass? [kg] ";
 txt = input(prompt); 
 if txt == 0
-    params.m_max = 0.1; 
+    params.m_max = 0.300; 
 else
     params.m_max = txt; 
 end 
@@ -90,7 +91,7 @@ params.res_cu = 1.68e-8;   % ohm*m @ 20°C
 params.rho_cu = 8960;      % kg/m^3
 
 min_P = 0.1; % W
-inc_P = 0.1; % W - adjust? 
+inc_P = 0.05; % W - adjust? 
 P_values = min_P:inc_P:params.P_max; 
 
 min_r = 0.005; 
@@ -98,7 +99,8 @@ inc_r = 0.0005;
 r_values = min_r:inc_r:max_r; % range of radii
 
 coil_template = struct( ...
-    'd_wire', 0, ...
+    'd_conductor', 0, ...
+    'd_jacket', 0, ...
     'l_core', 0, ...
     'n_wraps', 0, ...
     'r_outer', 0, ...
@@ -174,7 +176,8 @@ for k = 1:numel(alloys)
                 c.power = power; 
                 c.l_core = l_core; 
                 c.r_outer = r_core; 
-                c.d_wire = d_mm(j)/1000; 
+                c.d_conductor = d_conductor_mm(j)/1000; 
+                c.d_jacket = d_jacket_mm(j)/1000; 
                 c.res_per_m = r_km(j)/1000; 
                 c.awg = AWG(j); 
                 c.I_max = max_wire_current(j); 
@@ -187,10 +190,11 @@ for k = 1:numel(alloys)
                 end
 
                 % Determination of air core's magnetic moment contribution.
-                N_total = floor(l_core / c.d_wire) * c.n_wraps; 
+                N_total = floor(l_core / (c.d_conductor + c.d_jacket)) * c.n_wraps; 
                 r_mean = (r_core + c.r_outer) / 2; 
                 A_loop = pi*r_mean^2; 
                 c.M_dipole = N_total * c.current * A_loop; 
+
                 % Determination of core's magnetic moment contribution. 
                 Nd = demag(c.l_core, r_core); 
                 gain = 1+(core.mu_r - 1)/(1 + (core.mu_r)*Nd); 
@@ -277,18 +281,16 @@ bar(x, goobers);
 Checks if another layer of wire can be added and if so, wraps it. 
 %}
 function [coil, wrapping] = wrapNext(core, coil, params)
-
-    d_wire = coil.d_wire;
-    n_turns = floor(coil.l_core / d_wire);
+    n_turns = floor((coil.l_core / (coil.d_jacket + coil.d_conductor)));
 
     % geometry for new layer
     r_inner = coil.r_outer; 
-    r_outer = r_inner + d_wire; 
+    r_outer = r_inner + coil.d_jacket + coil.d_conductor; 
     r_mid = 0.5*(r_inner+r_outer); 
 
     % properties of new layer
     L_layer = 2*pi*r_mid*n_turns; 
-    A_wire = pi * (d_wire^2)/4;
+    A_wire = pi * ((coil.d_jacket + coil.d_conductor)^2)/4; % change this 
     R_layer = coil.res_per_m * L_layer; 
     m_layer = params.rho_cu * L_layer * A_wire; 
 
