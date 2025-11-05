@@ -115,6 +115,7 @@ coil_template = struct( ...
     'fail_code', 0, ...
     'power', 0, ...
     'I_max', 0, ...
+    'sum', 0, ...
     'awg', 0 ...
 );
 
@@ -122,7 +123,8 @@ core_template = struct( ...
     'name', '', ...
     'rho', [], ...
     'mass', [], ...
-    'mu_r', [] ...
+    'mu_r', [], ...
+    'radius', 0 ...
 );
 
 alloys = ["Vacoflux 50", "something"]; 
@@ -168,6 +170,7 @@ for k = 1:numel(alloys)
 
             r_core = r_values(i); 
             core.mass = core.rho*pi*r_core^2*l_core;
+            core.radius = r_core; 
 
             for j = 1:height(AWG)
 
@@ -190,9 +193,8 @@ for k = 1:numel(alloys)
                 end
 
                 % Determination of air core's magnetic moment contribution.
-                N_total = floor(l_core / (c.d_conductor + c.d_jacket)) * c.n_wraps; 
-                r_mean = (r_core + c.r_outer) / 2; 
-                A_loop = pi*r_mean^2; 
+                N_total = floor(l_core / c.d_jacket) * c.n_wraps; 
+                A_loop = pi*c.sum; 
                 c.M_dipole = N_total * c.current * A_loop; 
 
                 % Determination of core's magnetic moment contribution. 
@@ -241,32 +243,6 @@ scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]", 'filled')
 %     string(results.("Design Number")), 'VerticalAlignment','top', ...
 %     'HorizontalAlignment','left')
 
-% % total mass
-% figure; 
-% X = results.("Total Mass [kg]"); 
-% Y = results.("Magnetic Moment [A*m^2]"); 
-% x_center = median(X); 
-% y_center = median(Y); 
-% m = 100;
-% b = y_center - m*x_center; 
-% 
-% Y_predict = m*X + b; 
-% keep = Y >= Y_predict; 
-% filtered_results = results(keep, :); 
-% 
-% scatter(filtered_results, "Total Mass [kg]", "Magnetic Moment [A*m^2]", 'filled') 
-% % text(results.("Total Mass [kg]"), results.("Magnetic Moment [A*m^2]"), ...
-% %     string(results.("Design Number")), 'VerticalAlignment','top', ...
-% %     'HorizontalAlignment','left')
-% hold on 
-% x_fit = linspace(min(X), max(X), 100); 
-% y_fit = m*x_fit + b; 
-% plot(x_fit,y_fit); 
-% text(filtered_results.("Total Mass [kg]"), filtered_results.("Magnetic Moment [A*m^2]"), ...
-%     string(filtered_results.("Design Number")), ...
-%     'VerticalAlignment','top', 'HorizontalAlignment','left', 'FontSize', 8);
-% hold off 
-
 
 figure; 
 scatter(results,"Current [A]", "Magnetic Moment [A*m^2]", 'filled')
@@ -281,16 +257,17 @@ bar(x, goobers);
 Checks if another layer of wire can be added and if so, wraps it. 
 %}
 function [coil, wrapping] = wrapNext(core, coil, params)
-    n_turns = floor((coil.l_core / (coil.d_jacket + coil.d_conductor)));
+
+    n_turns = floor(coil.l_core / coil.d_jacket); 
 
     % geometry for new layer
     r_inner = coil.r_outer; 
-    r_outer = r_inner + coil.d_jacket + coil.d_conductor; 
-    r_mid = 0.5*(r_inner+r_outer); 
+    r_outer = r_inner + coil.d_jacket; 
+    r_mid = r_inner + 0.5*coil.d_jacket; % centerline of new layer 
 
     % properties of new layer
     L_layer = 2*pi*r_mid*n_turns; 
-    A_wire = pi * ((coil.d_jacket + coil.d_conductor)^2)/4; % change this 
+    A_wire = pi*(coil.d_jacket/2)^2; 
     R_layer = coil.res_per_m * L_layer; 
     m_layer = params.rho_cu * L_layer * A_wire; 
 
@@ -300,6 +277,7 @@ function [coil, wrapping] = wrapNext(core, coil, params)
     m_coil_new = coil.m_coil + m_layer;  
     m_total_new = core.mass + m_coil_new; 
     v_new = pi*(r_outer^2)*coil.l_core; 
+
     % check constraints
     if r_outer > params.r_outer_max
         coil.fail_code = 1; % volume fail
@@ -315,9 +293,15 @@ function [coil, wrapping] = wrapNext(core, coil, params)
         return; 
     end 
 
-    % wrap new layer
-    coil.v = v_new; 
     coil.n_wraps = coil.n_wraps + 1; 
+    if coil.n_wraps == 1
+        r = core.radius + 0.5*coil.d_jacket; 
+    else
+        r = core.radius + (2*coil.n_wraps - 1)*(0.5*coil.d_jacket); 
+    end 
+    coil.sum = coil.sum + r^2;  
+
+    coil.v = v_new; 
     coil.res_total = R_new; 
     coil.m_total = m_total_new; 
     coil.m_coil = m_coil_new; 
@@ -335,7 +319,7 @@ end
 % Properties of different alloy core choices. 
 function props = getProperties(name)
     switch(name)
-        case 'Vacoflux 50'
+        case 'four something'
             props.mu_r = 5000; 
             props.rho = 8120; % kg/m^3
             % props.minmach = x; % minimum machinable radius 
