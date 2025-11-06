@@ -44,7 +44,7 @@ disp('For default constraint, enter 0');
 prompt = "What is the maximum core radius? [m] ";
 txt = input(prompt); 
 if txt == 0
-    max_r = 0.01; 
+    max_r = 0.005; 
 else
     max_r = txt; 
 end 
@@ -73,29 +73,27 @@ else
     params.m_max = txt; 
 end 
 
-prompt = "What is the maximum supplied power? [W] "; 
+prompt = "What is the supplied voltage? [V] "; 
 txt = input(prompt); 
 if txt == 0
-    params.P_max = 5; % W
-    disp('Using 5 W maximum supplied power constraint.')
+    params.V_bus = 5; % V
+    % disp('Using 5 V maximum supplied power constraint.')
 else
-    params.P_max = txt; 
+    params.V_bus = txt; 
 end 
-
-
 
 %--------------------------------------------------------------------------
 % Parameters
 
 params.res_cu = 1.68e-8;   % ohm*m @ 20°C
 params.rho_cu = 8960;      % kg/m^3
+% 
+% min_P = 0.1; % W
+% inc_P = 0.05; % W - adjust? 
+% P_values = min_P:inc_P:params.P_max; 
 
-min_P = 0.1; % W
-inc_P = 0.05; % W - adjust? 
-P_values = min_P:inc_P:params.P_max; 
-
-min_r = 0.005; 
-inc_r = 0.0005; 
+min_r = 0.0001; 
+inc_r = 0.0001; 
 r_values = min_r:inc_r:max_r; % range of radii
 
 coil_template = struct( ...
@@ -127,17 +125,17 @@ core_template = struct( ...
     'radius', 0 ...
 );
 
-alloys = ["Vacoflux 50", "something"]; 
+alloys = ["4140", "something"]; 
 
 coil = repmat(coil_template, length(r_values), height(AWG)); % grid of coil templates
 
-sz = [1 13]; 
+sz = [1 12]; 
 varTypes = ["double", "double", "double", "string", "double", "double", "double", ...
-    "double", "double", "double", "double", "double", "double"]; 
+    "double", "double", "double", "double", "double"]; 
 varNames = ["Design Number", "Magnetic Moment [A*m^2]", "Air Cored Magnetic Moment [A*m^2]", ...
     "Alloy", "Wire Gauge", "Core Length [m]", "Core Radius [m]", ...
     "Outer Radius [m]", "Volume [m^3]", "Number of Wraps", "Current [A]", ...
-    "Power [W]", "Total Mass [kg]"];
+    "Total Mass [kg]"];
 results = table('Size',sz,'VariableTypes',varTypes,'VariableNames',varNames); 
 
 n = 1; 
@@ -162,9 +160,9 @@ for k = 1:numel(alloys)
     core.mu_r = properties.mu_r; 
     core.rho = properties.rho; 
 
-    for P = 1:length(P_values)
-
-        power = P_values(P); 
+    % for P = 1:length(P_values)
+    % 
+    %     power = P_values(P); 
 
         for i = 1:length(r_values)
 
@@ -176,7 +174,7 @@ for k = 1:numel(alloys)
 
                 % Initialize coil parameters 
                 c = coil_template; 
-                c.power = power; 
+                % c.power = power; 
                 c.l_core = l_core; 
                 c.r_outer = r_core; 
                 c.d_conductor = d_conductor_mm(j)/1000; 
@@ -192,19 +190,29 @@ for k = 1:numel(alloys)
                     end 
                 end
 
+                    
+
+                I_final = params.V_bus / c.res_total; 
+                if I_final > c.I_max
+                    curr_fail = curr_fail + 1; 
+                    continue
+                end 
+                c.current = I_final; 
+
                 % Determination of air core's magnetic moment contribution.
-                N_total = floor(l_core / c.d_jacket) * c.n_wraps; 
                 A_loop = pi*c.sum; 
-                c.M_dipole = N_total * c.current * A_loop; 
+                c.M_dipole = c.current * A_loop; 
 
                 % Determination of core's magnetic moment contribution. 
                 Nd = demag(c.l_core, r_core); 
-                gain = 1+(core.mu_r - 1)/(1 + (core.mu_r)*Nd); 
-                A_core = pi * r_core^2; 
-                c.M_9 = N_total*c.current*A_core*gain; 
+                gain = 1 + (core.mu_r - 1) / (1 + (core.mu_r - 1)*Nd);
+                c.M_9 = c.M_dipole * gain;
+
+                fprintf('AWG %2d | n_wraps=%3d | R=%.2f Ω | I=%.3f A | sum(r^2)=%.3e | M_air=%.3f | gain=%.1f | M=%.3f\n', ...
+    c.awg, c.n_wraps, c.res_total, c.current, c.sum, c.M_dipole, gain, c.M_9);
 
                 if c.M_9 > 0 
-                    results(n,:) = {n, c.M_9, c.M_dipole, core.name, c.awg, l_core, r_core, c.r_outer, c.v, c.n_wraps, c.current, c.power, c.m_total}; 
+                    results(n,:) = {n, c.M_9, c.M_dipole, core.name, c.awg, l_core, r_core, c.r_outer, c.v, c.n_wraps, c.current, c.m_total}; 
                     n = n+1; 
                     good = good + 1; 
                 end
@@ -218,110 +226,110 @@ for k = 1:numel(alloys)
                 end 
             end 
         end 
-    end 
+    % end 
    
 end 
+
+writetable(results, 'results.csv')
 
 results.("Moment Sensitivity [A*m^2 / A]") = results.("Magnetic Moment [A*m^2]") ./ results.("Current [A]"); 
 figure; 
 scatter(results, "Current [A]", "Moment Sensitivity [A*m^2 / A]", "filled");
 
-
+figure; 
+scatter(results, "Core Radius [m]", "Magnetic Moment [A*m^2]", "filled"); 
+text(results.("Core Radius [m]"), results.("Magnetic Moment [A*m^2]"), ...
+     string(results.("Design Number")), 'VerticalAlignment','top', ...
+     'HorizontalAlignment','left')
 
 
 % basic plots to be optimized in future release
 
 figure; 
-scatter(results, "Power [W]", "Magnetic Moment [A*m^2]", 'filled')
-% text(results.("Power [W]"), results.("Magnetic Moment [A*m^2]"), ...
-%     string(results.("Design Number")), 'VerticalAlignment','top', ...
-%     'HorizontalAlignment','left')
+scatter(results, "Wire Gauge", "Magnetic Moment [A*m^2]", "filled")
+text(results.("Wire Gauge"), results.("Magnetic Moment [A*m^2]"), ...
+     string(results.("Design Number")), 'VerticalAlignment','top', ...
+     'HorizontalAlignment','left')
 
 figure; 
 scatter(results, "Total Mass [kg]", "Magnetic Moment [A*m^2]", 'filled') 
-% text(results.("Total Mass [kg]"), results.("Magnetic Moment [A*m^2]"), ...
-%     string(results.("Design Number")), 'VerticalAlignment','top', ...
-%     'HorizontalAlignment','left')
+text(results.("Total Mass [kg]"), results.("Magnetic Moment [A*m^2]"), ...
+    string(results.("Design Number")), 'VerticalAlignment','top', ...
+    'HorizontalAlignment','left')
 
 
 figure; 
 scatter(results,"Current [A]", "Magnetic Moment [A*m^2]", 'filled')
-
+text(results.("Current [A]"), results.("Magnetic Moment [A*m^2]"), ...
+    string(results.("Design Number")), 'VerticalAlignment','top', ...
+    'HorizontalAlignment','left')
 
 figure; 
 x = ["Usable Designs" "Volume Fail" "Mass Fail" "Current Fail"]; 
 goobers = [good vol_fail mass_fail curr_fail]; 
 bar(x, goobers); 
 
+figure; 
+scatter(results, "Wire Gauge", "Current [A]", "filled")
+
 %{
 Checks if another layer of wire can be added and if so, wraps it. 
 %}
 function [coil, wrapping] = wrapNext(core, coil, params)
 
-    n_turns = floor(coil.l_core / coil.d_jacket); 
+    n_turns = floor(coil.l_core / coil.d_jacket);
 
     % geometry for new layer
-    r_inner = coil.r_outer; 
-    r_outer = r_inner + coil.d_jacket; 
-    r_mid = r_inner + 0.5*coil.d_jacket; % centerline of new layer 
+    r_inner = coil.r_outer;
+    r_outer = r_inner + coil.d_jacket;
+    r_mid   = r_inner + 0.5*coil.d_jacket;
 
-    % properties of new layer
-    L_layer = 2*pi*r_mid*n_turns; 
-    A_wire = pi*(coil.d_jacket/2)^2; 
-    R_layer = coil.res_per_m * L_layer; 
-    m_layer = params.rho_cu * L_layer * A_wire; 
+    % properties of new layer (CONDUCTOR dia for mass/R)
+    L_layer = 2*pi*r_mid*n_turns;
+    A_wire  = pi*(coil.d_conductor/2)^2;
+    R_layer = coil.res_per_m * L_layer;
+    m_layer = params.rho_cu * L_layer * A_wire;
 
     % new totals
-    R_new = coil.res_total + R_layer; 
-    I_new = sqrt(coil.power/R_new);
-    m_coil_new = coil.m_coil + m_layer;  
-    m_total_new = core.mass + m_coil_new; 
-    v_new = pi*(r_outer^2)*coil.l_core; 
+    R_new        = coil.res_total + R_layer;
+    m_coil_new   = coil.m_coil + m_layer;
+    m_total_new  = core.mass + m_coil_new;
+    v_new        = pi*(r_outer^2)*coil.l_core;
 
-    % check constraints
+    % geometry / mass constraints only
     if r_outer > params.r_outer_max
-        coil.fail_code = 1; % volume fail
-        wrapping = false; 
-        return
+        coil.fail_code = 1; wrapping=false; return
     elseif m_total_new > params.m_max
-        coil.fail_code = 2; % mass fail 
-        wrapping = false; 
-        return 
-    elseif I_new > coil.I_max 
-        coil.fail_code = 3; % power fail 
-        wrapping = false; 
-        return; 
-    end 
+        coil.fail_code = 2; wrapping=false; return
+    end
 
-    coil.n_wraps = coil.n_wraps + 1; 
-    if coil.n_wraps == 1
-        r = core.radius + 0.5*coil.d_jacket; 
-    else
-        r = core.radius + (2*coil.n_wraps - 1)*(0.5*coil.d_jacket); 
-    end 
-    coil.sum = coil.sum + r^2;  
 
-    coil.v = v_new; 
-    coil.res_total = R_new; 
-    coil.m_total = m_total_new; 
-    coil.m_coil = m_coil_new; 
-    coil.r_outer = r_outer; 
-    coil.current = I_new; 
-    wrapping = true; 
+    % accept layer
+    coil.n_wraps   = coil.n_wraps + 1;
+    coil.sum       = coil.sum + n_turns * (r_mid^2);   % SUM of r^2 over ALL turns
+    coil.r_outer   = r_outer;
+
+    coil.v         = v_new;
+    coil.res_total = R_new;
+    coil.m_total   = m_total_new;
+    coil.m_coil    = m_coil_new;
+
+    wrapping = true;
 end
+
 
 % Demagnetizing calculation
 function Nd = demag(l_core, r_core)
     x = l_core/r_core; 
-    Nd = 4*(log(x) - 1) / (x^2 - 4*log(x));
+    Nd = (4*(log(x) - 1)) / ((x^2 - 4*log(x)));
 end
 
 % Properties of different alloy core choices. 
 function props = getProperties(name)
     switch(name)
-        case 'four something'
-            props.mu_r = 5000; 
-            props.rho = 8120; % kg/m^3
+        case '4140'
+            props.mu_r = 400; 
+            props.rho = 7850; % kg/m^3
             % props.minmach = x; % minimum machinable radius 
         case 'something' % TODO
             props.mu_r = 0; 
