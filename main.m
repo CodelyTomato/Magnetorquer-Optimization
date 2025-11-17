@@ -29,8 +29,8 @@ params.r_max = 0.0125; % m
 params.vol_max = pi*params.r_max^2*params.L_core; % m^3
 params.mass_core = params.vol_core * params.dens_core; % kg 
 params.mass_max = 0.5; % kg 
-params.I_battery_max = 0.5; % A 
-params.V_in = 4; % V
+params.I_battery_max = 1; % A 
+params.V_in = 5; % V
 % --- Get Magnetic Wire Data --- % 
 % - Data taken from Remington Industries magnet wire - % 
 T = readtable('awg.csv', 'VariableNamingRule', 'preserve'); 
@@ -129,8 +129,8 @@ params.r_max = 0.0125; % m
 params.vol_max = pi*params.r_max^2*params.L_core; % m^3
 params.mass_core = params.vol_core * params.dens_core; % kg 
 params.mass_max = 0.5; % kg 
-params.I_battery_max = 0.5; % A 
-params.V_in = 4; % V
+params.I_battery_max = 1; % A 
+params.V_in = 5; % V
 % --- Get Magnetic Wire Data --- % 
 % - Data taken from Remington Industries magnet wire - % 
 T = readtable('awg.csv', 'VariableNamingRule', 'preserve'); 
