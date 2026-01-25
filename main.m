@@ -22,7 +22,7 @@ test the manufacturing process of in house magnetorquers.
 params.dens_cu = 8960; % kg/m^3
 params.res_cu = 1.68e-8; % ohm*meter
 params.dens_core = 7874; % kg/m^3
-params.r_core = 0.004; % m 
+params.r_core = 0.002; % m 
 params.L_core = 0.06; % m 
 params.vol_core = pi*params.r_core^2*params.L_core; % m^3
 params.r_max = 0.0125; % m 
