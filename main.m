@@ -22,15 +22,15 @@ test the manufacturing process of in house magnetorquers.
 params.dens_cu = 8960; % kg/m^3
 params.res_cu = 1.68e-8; % ohm*meter
 params.dens_core = 8120; % kg/m^3
-params.r_core = 0.002; % m 
-params.L_core = 0.09; % m 
+params.r_core = 0.003175; % m 
+params.L_core = 0.06; % m 
 params.vol_core = pi*params.r_core^2*params.L_core; % m^3
 params.r_max = 0.0125; % m 
 params.vol_max = pi*params.r_max^2*params.L_core; % m^3
 params.mass_core = params.vol_core * params.dens_core; % kg 
 params.mass_max = 0.5; % kg 
-params.I_battery_max = 1; % A 
-params.V_in = 5; % V
+params.I_battery_max = 0.8; % A 
+params.V_in = 3.3; % V
 % --- Get Magnetic Wire Data --- % 
 % - Data taken from Remington Industries magnet wire - % 
 T = readtable('awg.csv', 'VariableNamingRule', 'preserve'); 
@@ -41,7 +41,7 @@ d_ins_mm = T{:, 'Single Build Diameter (mm)'}; % diameter including jacket (mm)
  
 % --- Determine M_core --- % 
 % - Equations taken from Mehrjardi et. al. - % 
-mu_r = 2000; % cold-rolled 1008 low carbon steel (guess)
+mu_r = 100; 
 x = params.L_core / params.r_core; 
 Nd = (4*(log(x) - 1)) / ((x)^2 - 4*log(x)); % demagnetizing factor
 gain = 1 + (mu_r - 1) / (1 + (mu_r - 1)*Nd);
@@ -83,10 +83,10 @@ cmap = turbo(length(D_results));
 for i = 1:length(D_results)
     D = D_results{i};
     if ~isempty(D)
-        plot(D.r_outer, D.M_air, 'LineWidth', 2, 'Color', cmap(i,:));
+        plot(D.r_outer, D.M_core, 'LineWidth', 2, 'Color', cmap(i,:));
         awg = D.AWG(1);
         x_label = D.r_outer(end);
-        y_label = D.M_air(end);
+        y_label = D.M_core(end);
 
         text(x_label, y_label, sprintf('AWG %d', awg), ...
              'FontWeight','bold', 'FontSize',10, ...
