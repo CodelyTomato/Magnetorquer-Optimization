@@ -23,13 +23,13 @@ params.dens_cu = 8960; % kg/m^3
 params.res_cu = 1.68e-8; % ohm*meter
 params.dens_core = 7874; % kg/m^3
 params.r_core = 0.002; % m 
-params.L_core = 0.06; % m 
+params.L_core = 0.04191; % m 
 params.vol_core = pi*params.r_core^2*params.L_core; % m^3
 params.r_max = 0.0125; % m 
 params.vol_max = pi*params.r_max^2*params.L_core; % m^3
 params.mass_core = params.vol_core * params.dens_core; % kg 
 params.mass_max = 0.25; % kg 
-params.I_battery_max = 0.6; % A [maximum possible for a single rod] 
+params.I_battery_max = 0.1; % A [maximum possible for a single rod] 
 params.V_in = 3.3; % V
 % --- Get Magnetic Wire Data --- % 
 % - Data taken from Remington Industries magnet wire - % 
