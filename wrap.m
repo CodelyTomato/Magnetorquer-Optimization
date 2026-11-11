@@ -11,7 +11,7 @@ function D = wrap(p, d_ins, d_con, N, awg, I_wire_max, gain)
     L_total = 0; % m
     CSA_wire = (pi/4)*d_con^2; % cross-sectional area, m^2 
     fail_code = 0; % keeps tracks of what caused a design to fail 
-    D = []; 
+    D = [];
 
     while true 
         % --- new torquer geometry --- % 
@@ -49,6 +49,7 @@ function D = wrap(p, d_ins, d_con, N, awg, I_wire_max, gain)
             % the battery or wire can support, set the new current draw to
             % be the smaller of the two. 
             if I_new > I_wire_max || I_new > p.I_battery_max
+
                 % change to be function parameter
                 I_new = min(p.I_battery_max, I_wire_max); 
             end

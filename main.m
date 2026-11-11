@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 clear; clc; close all; 
 %{
 ----- MAGNETORQUER SIZING MODEL -----
@@ -141,3 +142,4 @@ xlabel('Outer Radius [m]');
 ylabel('Magnetic Moment (core) [A*m^2]'); 
 title('Outer Radius vs. Magnetic Moment by Wire Gauge');
 hold off;
+
