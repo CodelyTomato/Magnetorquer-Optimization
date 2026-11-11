@@ -24,12 +24,13 @@ params.res_cu = 1.68e-8; % ohm*meter
 params.dens_core = 8120; % kg/m^3
 params.r_core = 0.003175; % m 
 params.L_core = 0.06; % m 
+params.A_core = pi*params.r_core^2; 
 params.vol_core = pi*params.r_core^2*params.L_core; % m^3
 params.r_max = 0.0125; % m 
 params.vol_max = pi*params.r_max^2*params.L_core; % m^3
 params.mass_core = params.vol_core * params.dens_core; % kg 
-params.mass_max = 0.5; % kg 
-params.I_battery_max = 0.8; % A 
+params.mass_max = 0.2; % kg 
+params.I_battery_max = 1; % A 
 params.V_in = 3.3; % V
 % --- Get Magnetic Wire Data --- % 
 % - Data taken from Remington Industries magnet wire - % 
@@ -41,7 +42,7 @@ d_ins_mm = T{:, 'Single Build Diameter (mm)'}; % diameter including jacket (mm)
  
 % --- Determine M_core --- % 
 % - Equations taken from Mehrjardi et. al. - % 
-mu_r = 100; 
+mu_r = 50; 
 x = params.L_core / params.r_core; 
 Nd = (4*(log(x) - 1)) / ((x)^2 - 4*log(x)); % demagnetizing factor
 gain = 1 + (mu_r - 1) / (1 + (mu_r - 1)*Nd);
@@ -64,7 +65,7 @@ end
 AllData = []; 
 for i = 1:length(D_results)
     D = D_results{i}; 
-     headers = {'M_core','M_air','m_total','R_new','L_new', ...
+     headers = {'M_core','M_air', 'M_total', 'm_total','R_new','L_new', ...
                        'A_layer','I_new','Layer','r_outer','mass_new', ...
                        'AWG','d_ins','fail_code'};
      D = array2table(D, 'VariableNames',headers); 
@@ -83,7 +84,7 @@ cmap = turbo(length(D_results));
 for i = 1:length(D_results)
     D = D_results{i};
     if ~isempty(D)
-        plot(D.r_outer, D.M_core, 'LineWidth', 2, 'Color', cmap(i,:));
+        plot(D.r_outer, D.M_core, 'LineWidth', 4, 'Color', cmap(i,:));
         awg = D.AWG(1);
         x_label = D.r_outer(end);
         y_label = D.M_core(end);
@@ -96,5 +97,47 @@ for i = 1:length(D_results)
 end
 xlabel('Outer Radius [m]');
 ylabel('Magnetic Moment [A*m^2]'); 
+title('Outer Radius vs. Magnetic Moment by Wire Gauge');
+hold off;
+
+figure; hold on; grid on; 
+cmap = turbo(length(D_results)); 
+for i = 1:length(D_results)
+    D = D_results{i}; 
+    if ~isempty(D)
+        plot(D.r_outer, D.I_new, 'LineWidth', 2, 'Color', cmap(i,:)); 
+        awg = D.AWG(1); 
+        x_label = D.r_outer(end); 
+        y_label = D.I_new(end); 
+
+        text(x_label, y_label, sprintf('AWG %d', awg), ...
+             'FontWeight','bold', 'FontSize',10, ...
+             'VerticalAlignment','middle', 'HorizontalAlignment','left', ...
+             'Color', cmap(i,:));
+    end
+end
+xlabel('Outer Radius [m]');
+ylabel('Current Draw [A]'); 
+title('Outer Radius vs. Current Draw');
+hold off;
+
+figure; hold on; grid on; 
+cmap = turbo(length(D_results)); 
+for i = 1:length(D_results)
+    D = D_results{i};
+    if ~isempty(D)
+        plot(D.r_outer, D.M_core, 'LineWidth', 2, 'Color', cmap(i,:));
+        awg = D.AWG(1);
+        x_label = D.r_outer(end);
+        y_label = D.M_core(end);
+
+        text(x_label, y_label, sprintf('AWG %d', awg), ...
+             'FontWeight','bold', 'FontSize',10, ...
+             'VerticalAlignment','middle', 'HorizontalAlignment','left', ...
+             'Color', cmap(i,:));
+    end
+end
+xlabel('Outer Radius [m]');
+ylabel('Magnetic Moment (core) [A*m^2]'); 
 title('Outer Radius vs. Magnetic Moment by Wire Gauge');
 hold off;

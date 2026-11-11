@@ -62,9 +62,12 @@ function D = wrap(p, d_ins, d_con, N, awg, I_wire_max, gain)
                     m_total = m_prev + m_i; 
                 end 
                 M_air = m_total * I_new; % A*m^2
-                M_core = gain * M_air; % A*m^2
+                % M_core = gain * M_air; % A*m^2
+                N_total = k*N; 
+                M_core = N_total * I_new * p.A_core * gain; 
+                M_total = M_air + M_core; 
                 % Append new design to 'D' 
-                new_row = [M_core, M_air, m_total, R_new, L_new, ...
+                new_row = [M_core, M_air, M_total, m_total, R_new, L_new, ...
                     A_layer, I_new, k, r_outer, mass_new, awg, ...
                     d_ins, fail_code]; 
                 D = [D; new_row]; 
